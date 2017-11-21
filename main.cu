@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "includes/bmp_util.h"
+#include "includes/kernel.h"
 
 // TO DO: WRITE KERNELS HERE
 
@@ -26,6 +27,7 @@ int main() {
   x1 = y1 = 0;
   x2 = y2 = 100;
   MarkAndSave(I_path, x1, y1, x2, y2, out_path);
+  RunKernel();
 
   free(I);
   free(T);
