@@ -1,0 +1,5 @@
+*.o
+/data/*
+!/data/.not-blank
+.DS_Store
+/bin
