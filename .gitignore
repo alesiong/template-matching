@@ -3,3 +3,5 @@
 !/data/.not-blank
 .DS_Store
 /bin
+/output
+.env

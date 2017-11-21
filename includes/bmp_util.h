@@ -1,6 +1,10 @@
 #ifndef BMP_UTIL_H
 #define BMP_UTIL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef unsigned char uchar;
 
 // Function ReadBMP(): to read a GRAYSCALE image (in 24-bit BMP format)
@@ -23,5 +27,9 @@ float *ReadBMP(const char *bmpName, int *width, int *height);
 // Example usage: MarkAndSave("I.bmp", 10, 10, 50, 50, "output.bmp");
 void MarkAndSave(const char *bmpName, int X1, int Y1, int X2, int Y2,
                  const char *outputBmpName);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
