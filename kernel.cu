@@ -1,14 +1,107 @@
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include "includes/kernel.h"
+#include <math.h>
 
-__global__ void vectorAdd(const float *A, const float *B, float *C,
-                          int numElements) {
-  int i = blockDim.x * blockIdx.x + threadIdx.x;
 
-  if (i < numElements) {
-    C[i] = A[i] + B[i];
+__global__ void calcL1RowCumSum(const float *image, float *rowCumSum, int colNumberM) {
+  float sum = 0;
+  for (int i = 0; i < colNumberM; ++i) {
+    sum += image[threadIdx.x * colNumberM + i];
+    rowCumSum[threadIdx.x * colNumberM + i] = sum;
   }
+}
+
+__global__ void calcL1SumTable(const float *rowCumSum, float *l1SumTable,
+                           int rowNumberN, int colNumberM) {
+  float sum = 0;
+  for (size_t i = 0; i < rowNumberN; i++) {
+    sum += rowCumSum[i * colNumberM + blockIdx.x];
+    l1SumTable[i * colNumberM + blockIdx.x] = sum;
+  }
+}
+
+__global__ void calcL2RowCumSqrSum(const float *image, float *rowCumSum, int colNumberM) {
+  float sum = 0;
+  for (int i = 0; i < colNumberM; ++i) {
+    sum += pow(image[threadIdx.x * colNumberM + i], 2);
+    rowCumSum[threadIdx.x * colNumberM + i] = sum;
+  }
+}
+
+__global__ void calcL2SumTable(float *rowCumSum, float *l2SumTable,
+                           int rowNumberN, int colNumberM) {
+  float sum = 0;
+  for (size_t i = 0; i < rowNumberN; i++) {
+    sum += rowCumSum[i * colNumberM + blockIdx.x];
+    l1SumTable[i * colNumberM + blockIdx.x] = sum;
+  }
+}
+
+__global__ void calcLxRowCumGradntSum(const float *image, float *rowCumSum, int colNumberM) {
+  float sum = 0;
+  for (size_t i = 0; i < colNumberM; i++) {
+    sum += threadIdx.x * image[threadIdx.x * colNumberM + i];
+    rowCumSum[threadIdx.x * colNumberM + i] = sum;
+  }
+}
+
+__global__ void calcLxSumTable(const float *rowCumSum, float *lxSumTable,
+                           int rowNumberN, int colNumberM) {
+  float sum = 0;
+  for (size_t i = 0; i < rowNumberN; i++) {
+    sum += rowCumSum[i * colNumberM + blockIdx.x];
+    lxSumTable[i * colNumberM + blockIdx.x] = sum;
+  }
+}
+
+__global__ void calcLyRowCumGradntSum(const float *image, float *rowCumSum, int colNumberM) {
+  float sum = 0;
+  for (size_t i = 0; i < colNumberM; i++) {
+    sum += i * image[threadIdx.x * colNumberM + i];
+    rowCumSum[threadIdx.x * colNumberM + i] = sum;
+  }
+}
+
+__global__ void calcLySumTable(const float *rowCumSum, float *lySumTable,
+                           int rowNumberN, int colNumberM) {
+  float sum = 0;
+  for (size_t i = 0; i < rowNumberN; i++) {
+    sum += rowCumSum[i * colNumberM + blockIdx.x];
+    lySumTable[i * colNumberM + blockIdx.x] = sum;
+  }
+}
+
+__global__ void allocateCudaMem(float *pointer, int size) {
+  // Error code to check return values for CUDA calls
+  cudaError_t err = cudaSuccess;
+
+  err = cudaMalloc((void **)&pointer, size);
+
+  if (err != cudaSuccess) {
+    fprintf(stderr, "Failed to allocate device vector A (error code %s)!\n",
+            cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
+  }
+}
+
+void RunKernel(const float *I, const float *T, int M, int N, int K) {
+  float *l1SumTable;
+  float *l2SumTable;
+  float *lxSumTable;
+  float *lySumTable;
+
+  allocateCudaMem(l1SumTable, M * N);
+  allocateCudaMem(l2SumTable, M * N);
+  allocateCudaMem(lxSumTable, M * N);
+  allocateCudaMem(lySumTable, M * N);
+
+  //calculate l1 sum table
+  calcL1RowCumSum<<< 1, N>>>(I, l1SumTable, M);
+  calcL1SumTable<<< 1, M>>>(l1SumTable, l1SumTable, N, M);
+
+
+
 }
 
 void RunKernel(void) {
