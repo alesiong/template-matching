@@ -9,7 +9,7 @@ scp -q -r * $HOST:$PROJ_DIR/
 echo 'Compiling...'
 ssh $HOST "bash -l -c '\
   cd $PROJ_DIR/; \
-  nvcc --compiler-options -Wall -g -o main -I./includes *.c *.cu;\
+  nvcc -g -o main *.c *.cu --compiler-options -Wall,-Wextra;\
   '"
 
 echo 'Running...'

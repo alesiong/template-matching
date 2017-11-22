@@ -52,7 +52,7 @@ void MarkAndSave(const char *bmpName, int X1, int Y1, int X2, int Y2,
   // float *image;
   BITMAPFILEHEADER bmpFileHeader;
   BITMAPINFOHEADER bmpInfoHeader;
-  int bmpwidth, bmpheight, linebyte, npixels;
+  int bmpwidth, bmpheight, linebyte;  //, npixels;
   if ((fp = fopen(bmpName, "rb")) == NULL) {
     printf("Failed to open the original image.\n");
     return;
@@ -62,7 +62,7 @@ void MarkAndSave(const char *bmpName, int X1, int Y1, int X2, int Y2,
   fread(&bmpInfoHeader, sizeof(BITMAPINFOHEADER), 1, fp);
   bmpwidth = bmpInfoHeader.biWidth;
   bmpheight = bmpInfoHeader.biHeight;
-  npixels = bmpwidth * bmpheight;
+  // npixels = bmpwidth * bmpheight;
   linebyte = (bmpwidth * 24 / 8 + 3) / 4 * 4;
 
   img_raw = (uchar *)malloc(linebyte * bmpheight);
