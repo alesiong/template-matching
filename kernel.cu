@@ -51,7 +51,7 @@ __global__ void calcSumTable(const float *rowCumSum, float *SumTable,
 __global__ void calcVectorFeatures(float *vectorFeatures, int rowNumberN,
                                    int colNumberM, float *l1SumTable,
                                    float *l2SumTable, float *lxSumTable,
-                                   float *lySumTable) {
+                                   float *lySumTable, int K) {
   int start = threadIdx.x;
   float S1D = l1SumTable[start + K * colNumberM + K] - l1SumTable[start + K] \
               - l1SumTable[start + k * colNumberM] + l1SumTable[start];
