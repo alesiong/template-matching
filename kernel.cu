@@ -46,11 +46,40 @@ __global__ void calcSumTable(const float *rowCumSum, float *SumTable,
   }
 }
 
+//total (M - K + 1) * (N - K + 1) threads
+//rowNumber is (N - K + 1), colNumberM is (M - K + 1)
+__global__ void calcVectorFeatures(float *vectorFeatures, int rowNumberN,
+                                   int colNumberM, float *l1SumTable,
+                                   float *l2SumTable, float *lxSumTable,
+                                   float *lySumTable) {
+  int start = threadIdx.x;
+  float S1D = l1SumTable[start + K * colNumberM + K] - l1SumTable[start + K] \
+              - l1SumTable[start + k * colNumberM] + l1SumTable[start];
+
+  vectorFeatures[threadIdx.x * 4 + 0] = S1D / pow(K, 2);
+
+  vectorFeatures[threadIdx.x * 4 + 1] = (l2SumTable[start + K * colNumberM + K] \
+                                         - l2SumTable[start + K] \
+                                         - l2SumTable[start + k * colNumberM] \
+                                         + l2SumTable[start]) / pow(K, 2) \
+                                  - pow(vectorFeatures[threadIdx.x * 4 + 0], 2);
+  SxD = lxSumTable[start + K * colNumberM + K] - lxSumTable[start + K] \
+        - lxSumTable[start + k * colNumberM] + lxSumTable[start];
+  vectorFeatures[threadIdx.x * 4 + 2] = 4 * (SxD - (start / colNumberM + float(K/2))
+                                        * S1D) / pow(K, 3);
+
+  SyD = lySumTable[start + K * colNumberM + K] - lySumTable[start + K] \
+        - lySumTable[start + k * colNumberM] + lySumTable[start];
+  vectorFeatures[threadIdx.x * 4 + 3] = 4 * (SyD - (start % colNumberM + float(K/2))
+                                        * S1D) / pow(K, 3);
+
+}
+
 void allocateCudaMem(float **pointer, int size) {
   // Error code to check return values for CUDA calls
   cudaError_t err = cudaSuccess;
 
-  err = cudaMalloc((void **)&pointer, size);
+  err = cudaMalloc((void **)pointer, size);
 
   if (err != cudaSuccess) {
     fprintf(stderr, "Failed to allocate device memory (error code %s)!\n",
