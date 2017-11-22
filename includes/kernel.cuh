@@ -8,6 +8,13 @@ typedef struct SumTable_s {
   float* lySumTable;
 } SumTable;
 
+typedef struct FeatureVector_s {
+  float* meanVector;
+  float* varianceVector;
+  float* xGradientVector;
+  float* yGradientVector;
+} FeatureVector;
+
 /*
  * Get the match of T in I, the output is put in x and y that representing the
  * middle point of the matching.
