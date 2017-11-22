@@ -46,47 +46,53 @@ __global__ void calcSumTable(const float *rowCumSum, float *SumTable,
   }
 }
 
-__global__ float computeS(float *sumTable, int rowNumberN, int colNumberM,
+__device__ float computeS(float *sumTable, int rowNumberN, int colNumberM,
                           int startX, int startY, int Kx, int Ky) {
   startX--;
   startY--;
-  float S = sumTable[startX + Kx + (Ky + startY) * colNumberM]
-            - startX<0?0: sumTable[startX + Kx + startY * colNumberM]
-            - startY<0?0: sumTable[startX + (Ky + startY) * colNumberM]
-            + (startX<0||startY<0)?0: sumTable[startX + startY * colNumberM];
+  float S =
+      sumTable[startX + Kx + (Ky + startY) * colNumberM] -
+      (startX < 0 ? 0 : sumTable[startX + Kx + startY * colNumberM]) -
+      (startY < 0 ? 0 : sumTable[startX + (Ky + startY) * colNumberM]) +
+      (startX < 0 || startY < 0 ? 0 : sumTable[startX + startY * colNumberM]);
   return S;
 }
 
-//totally (M - K + 1) * (N - K + 1) threads
-__global__ void calcVectorFeatures(float *templateFeatures,
-                                   int rowNumberN, int colNumberM, float *l1SumTable,
+// totally (M - K + 1) * (N - K + 1) threads
+__global__ void calcVectorFeatures(float *templateFeatures, int rowNumberN,
+                                   int colNumberM, float *l1SumTable,
                                    float *l2SumTable, float *lxSumTable,
-                                   float *lySumTable, int Kx, int Ky, float *differences) {
-  FeatureVector featureVectors;
+                                   float *lySumTable, int Kx, int Ky,
+                                   float *differences) {
+  float meanVector;
+  float varianceVector;
+  float xGradientVector;
+  float yGradientVector;
   int startX = blockIdx.x;
   int startY = threadIdx.x;
 
-  float S1D = computeS(l1SumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
-  float S2D = computeS(l2SumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
+  float S1D =
+      computeS(l1SumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
+  float S2D =
+      computeS(l2SumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
 
-  featureVectors.meanVector[startX + startY * (gridDim.x)] = S1D / (Kx * Ky);
+  meanVector = S1D / (Kx * Ky);
 
-  float V1D = featureVectors->meanVector[startX + startY * (colNumberM - Kx + 1)];
-  featureVectors.varianceVector[startX + startY * (gridDim.x)] =
-      S2D / (Kx * Ky) - pow(V1D, 2);
+  varianceVector = S2D / (Kx * Ky) - powf(meanVector, 2);
 
-  float SxD = computeS(lxSumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
-  featureVectors.xGradientVector[startX + startY * (gridDim.x)] =
-      4 * (SxD - (startX + Kx/2.0) * S1D) / (Kx * Kx * Ky);
+  float SxD =
+      computeS(lxSumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
 
-  float SyD = computeS(lySumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
-  featureVectors.yGradientVector[startX + startY * (gridDim.x)] =
-      4 * (SyD - (startY + Ky/2.0) * S1D) / (Ky * KY * Kx);
+  xGradientVector = 4 * (SxD - (startX + Kx / 2.0) * S1D) / (Kx * Kx * Ky);
 
-  //TO DO: calculate differences
-    
+  float SyD =
+      computeS(lySumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
+  yGradientVector = 4 * (SyD - (startY + Ky / 2.0) * S1D) / (Ky * Ky * Kx);
 
-
+  differences[startX + startY * gridDim.x] = norm4df(
+      templateFeatures[0] - meanVector, templateFeatures[1] - varianceVector,
+      templateFeatures[2] - xGradientVector,
+      templateFeatures[3] - yGradientVector);
 }
 
 void allocateCudaMem(float **pointer, int size) {
@@ -145,10 +151,10 @@ void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
 
   for (int i = 0; i < Ky; i++) {
     for (int j = 0; j < Kx; j++) {
-      featuresT[0] = T[i * Kx + j];
-      featuresT[1] = T[i * Kx + j] * T[i * Kx + j];
-      featuresT[2] = j * T[i * Kx + j];
-      featuresT[3] = i * T[i * Kx + j];
+      featuresT[0] += T[i * Kx + j];
+      featuresT[1] += T[i * Kx + j] * T[i * Kx + j];
+      featuresT[2] += j * T[i * Kx + j];
+      featuresT[3] += i * T[i * Kx + j];
     }
   }
 
@@ -174,6 +180,7 @@ void getMinimum(float *target, int M, int N, int *x, int *y) {
   for (int i = 0; i < N; i++) {
     for (int j = 0; j < M; j++) {
       if (target[i * M + j] < minimum) {
+        minimum = target[i * M + j];
         *x = j;
         *y = i;
       }
@@ -184,14 +191,26 @@ void getMinimum(float *target, int M, int N, int *x, int *y) {
 void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
               int *y) {
   SumTable sumTable;
-  float featuresT[4];
+  float featuresT[4] = {0, 0, 0, 0};
   Preprocess(I, T, Iw, Ih, Tw, Th, &sumTable, featuresT);
   float *dev_difference;
   float *difference;
+  float *dev_featuresT;
   difference = (float *)malloc(sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1));
+  allocateCudaMem(&dev_featuresT, sizeof(float) * 4);
   allocateCudaMem(&dev_difference,
                   sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1));
-  // kernel for calculate difference
+  cudaMemcpy(dev_featuresT, featuresT, sizeof(float) * 4,
+             cudaMemcpyHostToDevice);
+
+  // calcVectorFeatures(float *templateFeatures, int rowNumberN, int colNumberM,
+  //                    float *l1SumTable, float *l2SumTable, float *lxSumTable,
+  //                    float *lySumTable, int Kx, int Ky, float *differences)
+
+  calcVectorFeatures<<<Iw - Tw + 1, Ih - Th + 1>>>(
+      dev_featuresT, Ih, Iw, sumTable.l1SumTable, sumTable.l2SumTable,
+      sumTable.lxSumTable, sumTable.lySumTable, Tw, Th, dev_difference);
+      cudaDeviceSynchronize();
 
   // reduceMinRow<<<(Iw - Tw + 1), (Iw - Tw + 1)>>>(dev_difference, );
   cudaMemcpy(difference, dev_difference,
@@ -205,5 +224,6 @@ void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
   cudaFree(sumTable.lxSumTable);
   cudaFree(sumTable.lySumTable);
   cudaFree(dev_difference);
+  cudaFree(dev_featuresT);
   free(difference);
 }

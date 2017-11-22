@@ -9,10 +9,10 @@ typedef struct SumTable_s {
 } SumTable;
 
 typedef struct FeatureVector_s {
-  float* meanVector;
-  float* varianceVector;
-  float* xGradientVector;
-  float* yGradientVector;
+  float meanVector;
+  float varianceVector;
+  float xGradientVector;
+  float yGradientVector;
 } FeatureVector;
 
 /*
