@@ -102,8 +102,8 @@ void allocateCudaMem(float **pointer, int size) {
   }
 }
 
-void Preprocess(const float *I, const float *T, int M, int N, int K,
-                SumTable *sumTable) {
+void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
+                SumTable *sumTable, float* featuresT) {
   float *l1SumTable;
   float *l2SumTable;
   float *lxSumTable;
@@ -115,12 +115,10 @@ void Preprocess(const float *I, const float *T, int M, int N, int K,
   allocateCudaMem(&lySumTable, sizeof(float) * M * N);
 
   float *dev_I;
-  float *dev_T;
 
   allocateCudaMem(&dev_I, sizeof(float) * M * N);
 
   cudaMemcpy(dev_I, I, sizeof(float) * M * N, cudaMemcpyHostToDevice);
-  // TODO: copy T to device
 
   cudaStream_t l1Stream, l2Stream, lxStream, lyStream;
   cudaStreamCreate(&l1Stream);
@@ -144,6 +142,23 @@ void Preprocess(const float *I, const float *T, int M, int N, int K,
   cudaStreamDestroy(lxStream);
   cudaStreamDestroy(lyStream);
 
+  for (int i = 0; i < Ky; i++) {
+    for (int j = 0; j < Kx; j++) {
+      featuresT[0] = T[i * Kx + j];
+      featuresT[1] = T[i * Kx + j] * T[i * Kx + j];
+      featuresT[2] = j * T[i * Kx + j];
+      featuresT[3] = i * T[i * Kx + j];
+    }
+  }
+
+  featuresT[0] /= (float)Kx * Ky;
+  featuresT[1] = featuresT[1] / (float)Kx * Ky - featuresT[0] * featuresT[0];
+  //   4/K^3*(Sx(D)-x*S1(D)), where x = Kx/2
+  // = 4/K^3*(f2-Kx/2*f0*Kx*Ky)
+  // = 4/Kx^2Ky*f2-2*f0
+  featuresT[2] = 4.0 / (Kx * Kx * Ky) * featuresT[2] - 2.0 * featuresT[0];
+  featuresT[3] = 4.0 / (Ky * Kx * Ky) * featuresT[3] - 2.0 * featuresT[0];
+
   cudaDeviceSynchronize();
   sumTable->l1SumTable = l1SumTable;
   sumTable->l2SumTable = l2SumTable;
@@ -154,7 +169,8 @@ void Preprocess(const float *I, const float *T, int M, int N, int K,
 void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
               int *y) {
   SumTable sumTable;
-  Preprocess(I, T, Iw, Ih, 0, &sumTable);
+  float featuresT[4];
+  Preprocess(I, T, Iw, Ih, Tw, Th, &sumTable, featuresT);
   *x = 100;
   *y = 100;
 }
