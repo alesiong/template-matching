@@ -23,7 +23,7 @@ __global__ void calcL2RowCumSqrSum(const float *image, float *rowCumSum,
 __global__ void calcLxRowCumGradntSum(const float *image, float *rowCumSum,
                                       int colNumberM) {
   float sum = 0;
-  for (size_t i = 0; i < colNumberM; i++) {
+  for (int i = 0; i < colNumberM; i++) {
     sum += threadIdx.x * image[threadIdx.x * colNumberM + i];
     rowCumSum[threadIdx.x * colNumberM + i] = sum;
   }
@@ -32,7 +32,7 @@ __global__ void calcLxRowCumGradntSum(const float *image, float *rowCumSum,
 __global__ void calcLyRowCumGradntSum(const float *image, float *rowCumSum,
                                       int colNumberM) {
   float sum = 0;
-  for (size_t i = 0; i < colNumberM; i++) {
+  for (int i = 0; i < colNumberM; i++) {
     sum += i * image[threadIdx.x * colNumberM + i];
     rowCumSum[threadIdx.x * colNumberM + i] = sum;
   }
@@ -84,7 +84,7 @@ __global__ void calcVectorFeatures(float *templateFeatures,
       4 * (SyD - (startY + Ky/2.0) * S1D) / (Ky * KY * Kx);
 
   //TO DO: calculate differences
-  
+    
 
 
 }
@@ -103,7 +103,7 @@ void allocateCudaMem(float **pointer, int size) {
 }
 
 void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
-                SumTable *sumTable, float* featuresT) {
+                SumTable *sumTable, float *featuresT) {
   float *l1SumTable;
   float *l2SumTable;
   float *lxSumTable;
@@ -120,13 +120,14 @@ void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
 
   cudaMemcpy(dev_I, I, sizeof(float) * M * N, cudaMemcpyHostToDevice);
 
+  // Use streams to ensure the order
   cudaStream_t l1Stream, l2Stream, lxStream, lyStream;
   cudaStreamCreate(&l1Stream);
   cudaStreamCreate(&l2Stream);
   cudaStreamCreate(&lxStream);
   cudaStreamCreate(&lyStream);
 
-  // calculate l1 sum table
+  // calculate sum tables first by row
   calcL1RowCumSum<<<1, N, 0, l1Stream>>>(dev_I, l1SumTable, M);
   calcL2RowCumSqrSum<<<1, N, 0, l2Stream>>>(dev_I, l2SumTable, M);
   calcLxRowCumGradntSum<<<1, N, 0, lxStream>>>(dev_I, lxSumTable, M);
@@ -151,8 +152,8 @@ void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
     }
   }
 
-  featuresT[0] /= (float)Kx * Ky;
-  featuresT[1] = featuresT[1] / (float)Kx * Ky - featuresT[0] * featuresT[0];
+  featuresT[0] /= (float)(Kx * Ky);
+  featuresT[1] = featuresT[1] / (float)(Kx * Ky) - featuresT[0] * featuresT[0];
   //   4/K^3*(Sx(D)-x*S1(D)), where x = Kx/2
   // = 4/K^3*(f2-Kx/2*f0*Kx*Ky)
   // = 4/Kx^2Ky*f2-2*f0
@@ -166,11 +167,43 @@ void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
   sumTable->lySumTable = lySumTable;
 }
 
+void getMinimum(float *target, int M, int N, int *x, int *y) {
+  float minimum = *target;
+  *x = 0;
+  *y = 0;
+  for (int i = 0; i < N; i++) {
+    for (int j = 0; j < M; j++) {
+      if (target[i * M + j] < minimum) {
+        *x = j;
+        *y = i;
+      }
+    }
+  }
+}
+
 void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
               int *y) {
   SumTable sumTable;
   float featuresT[4];
   Preprocess(I, T, Iw, Ih, Tw, Th, &sumTable, featuresT);
-  *x = 100;
-  *y = 100;
+  float *dev_difference;
+  float *difference;
+  difference = (float *)malloc(sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1));
+  allocateCudaMem(&dev_difference,
+                  sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1));
+  // kernel for calculate difference
+
+  // reduceMinRow<<<(Iw - Tw + 1), (Iw - Tw + 1)>>>(dev_difference, );
+  cudaMemcpy(difference, dev_difference,
+             sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1),
+             cudaMemcpyDeviceToHost);
+  cudaDeviceSynchronize();
+  // find the max, by kernel?
+  getMinimum(difference, Iw - Tw + 1, Ih - Th + 1, x, y);
+  cudaFree(sumTable.l1SumTable);
+  cudaFree(sumTable.l2SumTable);
+  cudaFree(sumTable.lxSumTable);
+  cudaFree(sumTable.lySumTable);
+  cudaFree(dev_difference);
+  free(difference);
 }
