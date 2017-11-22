@@ -1,7 +1,7 @@
 #include <cuda_runtime.h>
 #include <stdio.h>
-#include "includes/kernel.h"
 #include <math.h>
+#include "includes/kernel.cuh"
 
 
 __global__ void calcL1RowCumSum(const float *image, float *rowCumSum, int colNumberM) {
@@ -252,4 +252,10 @@ void RunKernel(void) {
   free(h_C);
 
   printf("Done\n");
+}
+
+void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
+              int *y) {
+  *x = 100;
+  *y = 100;
 }
