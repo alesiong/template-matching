@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "includes/bmp_util.h"
-#include "includes/kernel.h"
+#include "includes/kernel.cuh"
 
 // TO DO: WRITE KERNELS HERE
 
@@ -20,14 +20,19 @@ int main() {
   I = ReadBMP(I_path, &I_width, &I_height);
   T = ReadBMP(T_path, &T_width, &T_height);
 
-  // TO DO: perform template matching given I and T
+  if (I == 0 || T == 0) {
+    exit(1);
+  }
 
-  // Assuming that the best match patch is enclosed by vertices
-  // (x1,y1)(x2,y1)(x1,y2)(x2,y2)
-  x1 = y1 = 0;
-  x2 = y2 = 100;
+  int x, y;
+
+  GetMatch(I, T, I_width, I_height, T_width, T_height, &x, &y);
+  x1 = x - T_width / 2;
+  x2 = x + T_width / 2;
+  y1 = y - T_width / 2;
+  y2 = y + T_width / 2;
+
   MarkAndSave(I_path, x1, y1, x2, y2, out_path);
-  RunKernel();
 
   free(I);
   free(T);
