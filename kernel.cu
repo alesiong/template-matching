@@ -46,32 +46,46 @@ __global__ void calcSumTable(const float *rowCumSum, float *SumTable,
   }
 }
 
-//total (M - K + 1) * (N - K + 1) threads
-//rowNumber is (N - K + 1), colNumberM is (M - K + 1)
-__global__ void calcVectorFeatures(float *vectorFeatures, int rowNumberN,
-                                   int colNumberM, float *l1SumTable,
+__global__ float computeS(float *sumTable, int rowNumberN, int colNumberM,
+                          int startX, int startY, int Kx, int Ky) {
+  startX--;
+  startY--;
+  float S = sumTable[startX + Kx + (Ky + startY) * colNumberM]
+            - startX<0?0: sumTable[startX + Kx + startY * colNumberM]
+            - startY<0?0: sumTable[startX + (Ky + startY) * colNumberM]
+            + (startX<0||startY<0)?0: sumTable[startX + startY * colNumberM];
+  return S;
+}
+
+//totally (M - K + 1) * (N - K + 1) threads
+__global__ void calcVectorFeatures(float *templateFeatures,
+                                   int rowNumberN, int colNumberM, float *l1SumTable,
                                    float *l2SumTable, float *lxSumTable,
-                                   float *lySumTable, int K) {
-  int start = threadIdx.x;
-  float S1D = l1SumTable[start + K * colNumberM + K] - l1SumTable[start + K] \
-              - l1SumTable[start + k * colNumberM] + l1SumTable[start];
+                                   float *lySumTable, int Kx, int Ky, float *differences) {
+  FeatureVector featureVectors;
+  int startX = blockIdx.x;
+  int startY = threadIdx.x;
 
-  vectorFeatures[threadIdx.x * 4 + 0] = S1D / pow(K, 2);
+  float S1D = computeS(l1SumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
+  float S2D = computeS(l2SumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
 
-  vectorFeatures[threadIdx.x * 4 + 1] = (l2SumTable[start + K * colNumberM + K] \
-                                         - l2SumTable[start + K] \
-                                         - l2SumTable[start + k * colNumberM] \
-                                         + l2SumTable[start]) / pow(K, 2) \
-                                  - pow(vectorFeatures[threadIdx.x * 4 + 0], 2);
-  SxD = lxSumTable[start + K * colNumberM + K] - lxSumTable[start + K] \
-        - lxSumTable[start + k * colNumberM] + lxSumTable[start];
-  vectorFeatures[threadIdx.x * 4 + 2] = 4 * (SxD - (start / colNumberM + float(K/2))
-                                        * S1D) / pow(K, 3);
+  featureVectors.meanVector[startX + startY * (gridDim.x)] = S1D / (Kx * Ky);
 
-  SyD = lySumTable[start + K * colNumberM + K] - lySumTable[start + K] \
-        - lySumTable[start + k * colNumberM] + lySumTable[start];
-  vectorFeatures[threadIdx.x * 4 + 3] = 4 * (SyD - (start % colNumberM + float(K/2))
-                                        * S1D) / pow(K, 3);
+  float V1D = featureVectors->meanVector[startX + startY * (colNumberM - Kx + 1)];
+  featureVectors.varianceVector[startX + startY * (gridDim.x)] =
+      S2D / (Kx * Ky) - pow(V1D, 2);
+
+  float SxD = computeS(lxSumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
+  featureVectors.xGradientVector[startX + startY * (gridDim.x)] =
+      4 * (SxD - (startX + Kx/2.0) * S1D) / (Kx * Kx * Ky);
+
+  float SyD = computeS(lySumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
+  featureVectors.yGradientVector[startX + startY * (gridDim.x)] =
+      4 * (SyD - (startY + Ky/2.0) * S1D) / (Ky * KY * Kx);
+
+  //TO DO: calculate differences
+  
+
 
 }
 
