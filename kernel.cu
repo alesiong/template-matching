@@ -1,10 +1,9 @@
 #include <cuda_runtime.h>
 #include <stdio.h>
-#include <math.h>
 #include "includes/kernel.cuh"
 
-
-__global__ void calcL1RowCumSum(const float *image, float *rowCumSum, int colNumberM) {
+__global__ void calcL1RowCumSum(const float *image, float *rowCumSum,
+                                int colNumberM) {
   float sum = 0;
   for (int i = 0; i < colNumberM; ++i) {
     sum += image[threadIdx.x * colNumberM + i];
@@ -12,33 +11,17 @@ __global__ void calcL1RowCumSum(const float *image, float *rowCumSum, int colNum
   }
 }
 
-__global__ void calcL1SumTable(const float *rowCumSum, float *l1SumTable,
-                           int rowNumberN, int colNumberM) {
-  float sum = 0;
-  for (size_t i = 0; i < rowNumberN; i++) {
-    sum += rowCumSum[i * colNumberM + blockIdx.x];
-    l1SumTable[i * colNumberM + blockIdx.x] = sum;
-  }
-}
-
-__global__ void calcL2RowCumSqrSum(const float *image, float *rowCumSum, int colNumberM) {
+__global__ void calcL2RowCumSqrSum(const float *image, float *rowCumSum,
+                                   int colNumberM) {
   float sum = 0;
   for (int i = 0; i < colNumberM; ++i) {
-    sum += pow(image[threadIdx.x * colNumberM + i], 2);
+    sum += powf(image[threadIdx.x * colNumberM + i], 2);
     rowCumSum[threadIdx.x * colNumberM + i] = sum;
   }
 }
 
-__global__ void calcL2SumTable(float *rowCumSum, float *l2SumTable,
-                           int rowNumberN, int colNumberM) {
-  float sum = 0;
-  for (size_t i = 0; i < rowNumberN; i++) {
-    sum += rowCumSum[i * colNumberM + blockIdx.x];
-    l1SumTable[i * colNumberM + blockIdx.x] = sum;
-  }
-}
-
-__global__ void calcLxRowCumGradntSum(const float *image, float *rowCumSum, int colNumberM) {
+__global__ void calcLxRowCumGradntSum(const float *image, float *rowCumSum,
+                                      int colNumberM) {
   float sum = 0;
   for (size_t i = 0; i < colNumberM; i++) {
     sum += threadIdx.x * image[threadIdx.x * colNumberM + i];
@@ -46,16 +29,8 @@ __global__ void calcLxRowCumGradntSum(const float *image, float *rowCumSum, int 
   }
 }
 
-__global__ void calcLxSumTable(const float *rowCumSum, float *lxSumTable,
-                           int rowNumberN, int colNumberM) {
-  float sum = 0;
-  for (size_t i = 0; i < rowNumberN; i++) {
-    sum += rowCumSum[i * colNumberM + blockIdx.x];
-    lxSumTable[i * colNumberM + blockIdx.x] = sum;
-  }
-}
-
-__global__ void calcLyRowCumGradntSum(const float *image, float *rowCumSum, int colNumberM) {
+__global__ void calcLyRowCumGradntSum(const float *image, float *rowCumSum,
+                                      int colNumberM) {
   float sum = 0;
   for (size_t i = 0; i < colNumberM; i++) {
     sum += i * image[threadIdx.x * colNumberM + i];
@@ -63,199 +38,80 @@ __global__ void calcLyRowCumGradntSum(const float *image, float *rowCumSum, int 
   }
 }
 
-__global__ void calcLySumTable(const float *rowCumSum, float *lySumTable,
-                           int rowNumberN, int colNumberM) {
-  float sum = 0;
-  for (size_t i = 0; i < rowNumberN; i++) {
-    sum += rowCumSum[i * colNumberM + blockIdx.x];
-    lySumTable[i * colNumberM + blockIdx.x] = sum;
+__global__ void calcSumTable(const float *rowCumSum, float *SumTable,
+                             int rowNumberN, int colNumberM) {
+  for (int i = 1; i < rowNumberN; i++) {
+    SumTable[i * colNumberM + threadIdx.x] +=
+        rowCumSum[(i - 1) * colNumberM + threadIdx.x];
   }
 }
 
-__global__ void allocateCudaMem(float *pointer, int size) {
+void allocateCudaMem(float **pointer, int size) {
   // Error code to check return values for CUDA calls
   cudaError_t err = cudaSuccess;
 
-  err = cudaMalloc((void **)&pointer, size);
+  err = cudaMalloc((void **)pointer, size);
 
   if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to allocate device vector A (error code %s)!\n",
+    fprintf(stderr, "Failed to allocate device memory (error code %s)!\n",
             cudaGetErrorString(err));
     exit(EXIT_FAILURE);
   }
 }
 
-void RunKernel(const float *I, const float *T, int M, int N, int K) {
+void Preprocess(const float *I, const float *T, int M, int N, int K,
+                SumTable *sumTable) {
   float *l1SumTable;
   float *l2SumTable;
   float *lxSumTable;
   float *lySumTable;
 
-  allocateCudaMem(l1SumTable, M * N);
-  allocateCudaMem(l2SumTable, M * N);
-  allocateCudaMem(lxSumTable, M * N);
-  allocateCudaMem(lySumTable, M * N);
+  allocateCudaMem(&l1SumTable, sizeof(float) * M * N);
+  allocateCudaMem(&l2SumTable, sizeof(float) * M * N);
+  allocateCudaMem(&lxSumTable, sizeof(float) * M * N);
+  allocateCudaMem(&lySumTable, sizeof(float) * M * N);
 
-  //calculate l1 sum table
-  calcL1RowCumSum<<< 1, N>>>(I, l1SumTable, M);
-  calcL1SumTable<<< 1, M>>>(l1SumTable, l1SumTable, N, M);
+  float *dev_I;
+  float *dev_T;
 
+  allocateCudaMem(&dev_I, sizeof(float) * M * N);
 
+  cudaMemcpy(dev_I, I, sizeof(float) * M * N, cudaMemcpyHostToDevice);
+  // TODO: copy T to device
 
-}
+  cudaStream_t l1Stream, l2Stream, lxStream, lyStream;
+  cudaStreamCreate(&l1Stream);
+  cudaStreamCreate(&l2Stream);
+  cudaStreamCreate(&lxStream);
+  cudaStreamCreate(&lyStream);
 
-void RunKernel(void) {
-  // Error code to check return values for CUDA calls
-  cudaError_t err = cudaSuccess;
+  // calculate l1 sum table
+  calcL1RowCumSum<<<1, N, 0, l1Stream>>>(dev_I, l1SumTable, M);
+  calcL2RowCumSqrSum<<<1, N, 0, l2Stream>>>(dev_I, l2SumTable, M);
+  calcLxRowCumGradntSum<<<1, N, 0, lxStream>>>(dev_I, lxSumTable, M);
+  calcLyRowCumGradntSum<<<1, N, 0, lyStream>>>(dev_I, lySumTable, M);
 
-  // Print the vector length to be used, and compute its size
-  int numElements = 50000;
-  size_t size = numElements * sizeof(float);
-  printf("[Vector addition of %d elements]\n", numElements);
+  calcSumTable<<<1, M, 0, l1Stream>>>(l1SumTable, l1SumTable, N, M);
+  calcSumTable<<<1, M, 0, l2Stream>>>(l2SumTable, l2SumTable, N, M);
+  calcSumTable<<<1, M, 0, lxStream>>>(lxSumTable, lxSumTable, N, M);
+  calcSumTable<<<1, M, 0, lyStream>>>(lySumTable, lySumTable, N, M);
 
-  // Allocate the host input vector A
-  float *h_A = (float *)malloc(size);
+  cudaStreamDestroy(l1Stream);
+  cudaStreamDestroy(l2Stream);
+  cudaStreamDestroy(lxStream);
+  cudaStreamDestroy(lyStream);
 
-  // Allocate the host input vector B
-  float *h_B = (float *)malloc(size);
-
-  // Allocate the host output vector C
-  float *h_C = (float *)malloc(size);
-
-  // Verify that allocations succeeded
-  if (h_A == NULL || h_B == NULL || h_C == NULL) {
-    fprintf(stderr, "Failed to allocate host vectors!\n");
-    exit(EXIT_FAILURE);
-  }
-
-  // Initialize the host input vectors
-  for (int i = 0; i < numElements; ++i) {
-    h_A[i] = rand() / (float)RAND_MAX;
-    h_B[i] = rand() / (float)RAND_MAX;
-  }
-
-  // Allocate the device input vector A
-  float *d_A = NULL;
-  err = cudaMalloc((void **)&d_A, size);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to allocate device vector A (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  // Allocate the device input vector B
-  float *d_B = NULL;
-  err = cudaMalloc((void **)&d_B, size);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to allocate device vector B (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  // Allocate the device output vector C
-  float *d_C = NULL;
-  err = cudaMalloc((void **)&d_C, size);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to allocate device vector C (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  // Copy the host input vectors A and B in host memory to the device input
-  // vectors in device memory
-  printf("Copy input data from the host memory to the CUDA device\n");
-  err = cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr,
-            "Failed to copy vector A from host to device (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  err = cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr,
-            "Failed to copy vector B from host to device (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  // Launch the Vector Add CUDA Kernel
-  int threadsPerBlock = 256;
-  int blocksPerGrid = (numElements + threadsPerBlock - 1) / threadsPerBlock;
-  printf("CUDA kernel launch with %d blocks of %d threads\n", blocksPerGrid,
-         threadsPerBlock);
-  vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, numElements);
-  err = cudaGetLastError();
-
-  if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to launch vectorAdd kernel (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  // Copy the device result vector in device memory to the host result vector
-  // in host memory.
-  printf("Copy output data from the CUDA device to the host memory\n");
-  err = cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr,
-            "Failed to copy vector C from device to host (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  // Verify that the result vector is correct
-  for (int i = 0; i < numElements; ++i) {
-    if (fabs(h_A[i] + h_B[i] - h_C[i]) > 1e-5) {
-      fprintf(stderr, "Result verification failed at element %d!\n", i);
-      exit(EXIT_FAILURE);
-    }
-  }
-
-  printf("Test PASSED\n");
-
-  // Free device global memory
-  err = cudaFree(d_A);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to free device vector A (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  err = cudaFree(d_B);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to free device vector B (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  err = cudaFree(d_C);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to free device vector C (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  // Free host memory
-  free(h_A);
-  free(h_B);
-  free(h_C);
-
-  printf("Done\n");
+  cudaDeviceSynchronize();
+  sumTable->l1SumTable = l1SumTable;
+  sumTable->l2SumTable = l2SumTable;
+  sumTable->lxSumTable = lxSumTable;
+  sumTable->lySumTable = lySumTable;
 }
 
 void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
               int *y) {
+  SumTable sumTable;
+  Preprocess(I, T, Iw, Ih, 0, &sumTable);
   *x = 100;
   *y = 100;
 }
