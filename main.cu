@@ -27,10 +27,11 @@ int main() {
   int x, y;
 
   GetMatch(I, T, I_width, I_height, T_width, T_height, &x, &y);
-  x1 = x - T_width / 2;
-  x2 = x + T_width / 2;
-  y1 = y - T_width / 2;
-  y2 = y + T_width / 2;
+  printf("%d, %d\n", x, y);
+  x1 = x;
+  x2 = x + T_width - 1;
+  y1 = y;
+  y2 = y + T_height - 1;
 
   MarkAndSave(I_path, x1, y1, x2, y2, out_path);
 
