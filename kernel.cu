@@ -24,7 +24,7 @@ __global__ void calcLxRowCumGradntSum(const float *image, float *rowCumSum,
                                       int colNumberM) {
   float sum = 0;
   for (int i = 0; i < colNumberM; i++) {
-    sum += threadIdx.x * image[threadIdx.x * colNumberM + i];
+    sum += i * image[threadIdx.x * colNumberM + i];
     rowCumSum[threadIdx.x * colNumberM + i] = sum;
   }
 }
@@ -33,7 +33,7 @@ __global__ void calcLyRowCumGradntSum(const float *image, float *rowCumSum,
                                       int colNumberM) {
   float sum = 0;
   for (int i = 0; i < colNumberM; i++) {
-    sum += i * image[threadIdx.x * colNumberM + i];
+    sum += threadIdx.x * image[threadIdx.x * colNumberM + i];
     rowCumSum[threadIdx.x * colNumberM + i] = sum;
   }
 }
@@ -210,7 +210,7 @@ void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
   calcVectorFeatures<<<Iw - Tw + 1, Ih - Th + 1>>>(
       dev_featuresT, Ih, Iw, sumTable.l1SumTable, sumTable.l2SumTable,
       sumTable.lxSumTable, sumTable.lySumTable, Tw, Th, dev_difference);
-      cudaDeviceSynchronize();
+  cudaDeviceSynchronize();
 
   // reduceMinRow<<<(Iw - Tw + 1), (Iw - Tw + 1)>>>(dev_difference, );
   cudaMemcpy(difference, dev_difference,
