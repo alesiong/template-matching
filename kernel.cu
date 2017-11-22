@@ -41,8 +41,8 @@ __global__ void calcLyRowCumGradntSum(const float *image, float *rowCumSum,
 __global__ void calcSumTable(const float *rowCumSum, float *SumTable,
                              int rowNumberN, int colNumberM) {
   for (int i = 1; i < rowNumberN; i++) {
-    SumTable[i * colNumberM + blockIdx.x] +=
-        rowCumSum[(i - 1) * colNumberM + blockIdx.x];
+    SumTable[i * colNumberM + threadIdx.x] +=
+        rowCumSum[(i - 1) * colNumberM + threadIdx.x];
   }
 }
 
@@ -88,20 +88,25 @@ void allocateCudaMem(float **pointer, int size) {
   }
 }
 
-void Preprocess(const float *I, const float *T, int M, int N, int K) {
+void Preprocess(const float *I, const float *T, int M, int N, int K,
+                SumTable *sumTable) {
   float *l1SumTable;
   float *l2SumTable;
   float *lxSumTable;
   float *lySumTable;
 
-  allocateCudaMem(&l1SumTable, M * N);
-  allocateCudaMem(&l2SumTable, M * N);
-  allocateCudaMem(&lxSumTable, M * N);
-  allocateCudaMem(&lySumTable, M * N);
+  allocateCudaMem(&l1SumTable, sizeof(float) * M * N);
+  allocateCudaMem(&l2SumTable, sizeof(float) * M * N);
+  allocateCudaMem(&lxSumTable, sizeof(float) * M * N);
+  allocateCudaMem(&lySumTable, sizeof(float) * M * N);
 
   float *dev_I;
   float *dev_T;
-  // TODO: copy I and T to device
+
+  allocateCudaMem(&dev_I, sizeof(float) * M * N);
+
+  cudaMemcpy(dev_I, I, sizeof(float) * M * N, cudaMemcpyHostToDevice);
+  // TODO: copy T to device
 
   cudaStream_t l1Stream, l2Stream, lxStream, lyStream;
   cudaStreamCreate(&l1Stream);
@@ -110,22 +115,32 @@ void Preprocess(const float *I, const float *T, int M, int N, int K) {
   cudaStreamCreate(&lyStream);
 
   // calculate l1 sum table
-  calcL1RowCumSum<<<1, N, 0, l1Stream>>>(I, l1SumTable, M);
-  calcL2RowCumSqrSum<<<1, N, 0, l2Stream>>>(I, l2SumTable, M);
-  calcLxRowCumGradntSum<<<1, N, 0, lxStream>>>(I, lxSumTable, M);
-  calcLyRowCumGradntSum<<<1, N, 0, lyStream>>>(I, lySumTable, M);
+  calcL1RowCumSum<<<1, N, 0, l1Stream>>>(dev_I, l1SumTable, M);
+  calcL2RowCumSqrSum<<<1, N, 0, l2Stream>>>(dev_I, l2SumTable, M);
+  calcLxRowCumGradntSum<<<1, N, 0, lxStream>>>(dev_I, lxSumTable, M);
+  calcLyRowCumGradntSum<<<1, N, 0, lyStream>>>(dev_I, lySumTable, M);
 
-  calcSumTable<<<1, M>>>(l1SumTable, l1SumTable, N, M);
+  calcSumTable<<<1, M, 0, l1Stream>>>(l1SumTable, l1SumTable, N, M);
+  calcSumTable<<<1, M, 0, l2Stream>>>(l2SumTable, l2SumTable, N, M);
+  calcSumTable<<<1, M, 0, lxStream>>>(lxSumTable, lxSumTable, N, M);
+  calcSumTable<<<1, M, 0, lyStream>>>(lySumTable, lySumTable, N, M);
 
   cudaStreamDestroy(l1Stream);
   cudaStreamDestroy(l2Stream);
   cudaStreamDestroy(lxStream);
   cudaStreamDestroy(lyStream);
+
+  cudaDeviceSynchronize();
+  sumTable->l1SumTable = l1SumTable;
+  sumTable->l2SumTable = l2SumTable;
+  sumTable->lxSumTable = lxSumTable;
+  sumTable->lySumTable = lySumTable;
 }
 
 void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
               int *y) {
-  Preprocess(I, T, Iw, Ih, 0);
+  SumTable sumTable;
+  Preprocess(I, T, Iw, Ih, 0, &sumTable);
   *x = 100;
   *y = 100;
 }
