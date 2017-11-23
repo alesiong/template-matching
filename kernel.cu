@@ -2,41 +2,24 @@
 #include <stdio.h>
 #include "includes/kernel.cuh"
 
-__global__ void calcL1RowCumSum(const float *image, float *rowCumSum,
-                                int colNumberM) {
-  float sum = 0;
-  for (int i = 0; i < colNumberM; ++i) {
-    sum += image[threadIdx.x * colNumberM + i];
-    rowCumSum[threadIdx.x * colNumberM + i] = sum;
-  }
-}
+#define L1Func(I, x, y) (I)
+#define L2Func(I, x, y) (powf(I, 2))
+#define LxFunc(I, x, y) (x * I)
+#define LyFunc(I, x, y) (y * I)
 
-__global__ void calcL2RowCumSqrSum(const float *image, float *rowCumSum,
-                                   int colNumberM) {
-  float sum = 0;
-  for (int i = 0; i < colNumberM; ++i) {
-    sum += powf(image[threadIdx.x * colNumberM + i], 2);
-    rowCumSum[threadIdx.x * colNumberM + i] = sum;
+#define RowCumSum(name, func)                                                  \
+  __global__ void name(const float *image, float *rowCumSum, int colNumberM) { \
+    float sum = 0;                                                             \
+    for (int i = 0; i < colNumberM; ++i) {                                     \
+      sum += func(image[threadIdx.x * colNumberM + i], i, threadIdx.x);        \
+      rowCumSum[threadIdx.x * colNumberM + i] = sum;                           \
+    }                                                                          \
   }
-}
 
-__global__ void calcLxRowCumGradntSum(const float *image, float *rowCumSum,
-                                      int colNumberM) {
-  float sum = 0;
-  for (int i = 0; i < colNumberM; i++) {
-    sum += i * image[threadIdx.x * colNumberM + i];
-    rowCumSum[threadIdx.x * colNumberM + i] = sum;
-  }
-}
-
-__global__ void calcLyRowCumGradntSum(const float *image, float *rowCumSum,
-                                      int colNumberM) {
-  float sum = 0;
-  for (int i = 0; i < colNumberM; i++) {
-    sum += threadIdx.x * image[threadIdx.x * colNumberM + i];
-    rowCumSum[threadIdx.x * colNumberM + i] = sum;
-  }
-}
+RowCumSum(calcL1RowCumSum, L1Func);
+RowCumSum(calcL2RowCumSqrSum, L2Func);
+RowCumSum(calcLxRowCumGradntSum, LxFunc);
+RowCumSum(calcLyRowCumGradntSum, LyFunc);
 
 __global__ void calcSumTable(const float *rowCumSum, float *SumTable,
                              int rowNumberN, int colNumberM) {
@@ -58,12 +41,24 @@ __device__ float computeS(float *sumTable, int rowNumberN, int colNumberM,
   return S;
 }
 
+void allocateCudaMem(float **pointer, int size) {
+  cudaError_t err = cudaSuccess;
+
+  err = cudaMalloc((void **)pointer, size);
+
+  if (err != cudaSuccess) {
+    fprintf(stderr, "Failed to allocate device memory (error code %s)!\n",
+            cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
+  }
+}
+
 // totally (M - K + 1) * (N - K + 1) threads
-__global__ void calcVectorFeatures(float *templateFeatures, int rowNumberN,
-                                   int colNumberM, float *l1SumTable,
-                                   float *l2SumTable, float *lxSumTable,
-                                   float *lySumTable, int Kx, int Ky,
-                                   float *differences) {
+__global__ void calculateFeatureDifference(float *templateFeatures,
+                                           int rowNumberN, int colNumberM,
+                                           float *l1SumTable, float *l2SumTable,
+                                           float *lxSumTable, float *lySumTable,
+                                           int Kx, int Ky, float *differences) {
   float meanVector;
   float varianceVector;
   float xGradientVector;
@@ -93,19 +88,6 @@ __global__ void calcVectorFeatures(float *templateFeatures, int rowNumberN,
       templateFeatures[0] - meanVector, templateFeatures[1] - varianceVector,
       templateFeatures[2] - xGradientVector,
       templateFeatures[3] - yGradientVector);
-}
-
-void allocateCudaMem(float **pointer, int size) {
-  // Error code to check return values for CUDA calls
-  cudaError_t err = cudaSuccess;
-
-  err = cudaMalloc((void **)pointer, size);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to allocate device memory (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
 }
 
 void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
@@ -196,25 +178,18 @@ void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
   float *dev_difference;
   float *difference;
   float *dev_featuresT;
-  difference = (float *)malloc(sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1));
+  size_t difference_size = sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1);
+  difference = (float *)malloc(difference_size);
   allocateCudaMem(&dev_featuresT, sizeof(float) * 4);
-  allocateCudaMem(&dev_difference,
-                  sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1));
+  allocateCudaMem(&dev_difference, difference_size);
   cudaMemcpy(dev_featuresT, featuresT, sizeof(float) * 4,
              cudaMemcpyHostToDevice);
 
-  // calcVectorFeatures(float *templateFeatures, int rowNumberN, int colNumberM,
-  //                    float *l1SumTable, float *l2SumTable, float *lxSumTable,
-  //                    float *lySumTable, int Kx, int Ky, float *differences)
-
-  calcVectorFeatures<<<Iw - Tw + 1, Ih - Th + 1>>>(
+  calculateFeatureDifference<<<Iw - Tw + 1, Ih - Th + 1>>>(
       dev_featuresT, Ih, Iw, sumTable.l1SumTable, sumTable.l2SumTable,
       sumTable.lxSumTable, sumTable.lySumTable, Tw, Th, dev_difference);
-  cudaDeviceSynchronize();
 
-  // reduceMinRow<<<(Iw - Tw + 1), (Iw - Tw + 1)>>>(dev_difference, );
-  cudaMemcpy(difference, dev_difference,
-             sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1),
+  cudaMemcpy(difference, dev_difference, difference_size,
              cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
   // find the max, by kernel?

@@ -4,8 +4,6 @@
 #include "includes/bmp_util.h"
 #include "includes/kernel.cuh"
 
-// TO DO: WRITE KERNELS HERE
-
 int main() {
   // Just an example here - you are free to modify them
   int I_width, I_height, T_width, T_height;
@@ -27,7 +25,6 @@ int main() {
   int x, y;
 
   GetMatch(I, T, I_width, I_height, T_width, T_height, &x, &y);
-  printf("%d, %d\n", x, y);
   x1 = x;
   x2 = x + T_width - 1;
   y1 = y;

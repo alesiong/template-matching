@@ -36,7 +36,9 @@ float *ReadBMP(const char *bmpName, int *width, int *height) {
   image = (float *)malloc(sizeof(float) * npixels);
   for (i = 0; i < bmpheight; i++)
     for (j = 0; j < bmpwidth; j++)
-      image[i * bmpwidth + j] = (float)img_raw[i * linebyte + j * 3];
+      image[i * bmpwidth + j] = 0.11 * img_raw[i * linebyte + j * 3] +
+                                0.59 * img_raw[i * linebyte + j * 3 + 1] +
+                                0.30 * img_raw[i * linebyte + j * 3 + 2];
   *width = bmpwidth;
   *height = bmpheight;
 
