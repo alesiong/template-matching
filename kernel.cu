@@ -6,8 +6,6 @@
 #define L2Func(I, x, y) (powf(I, 2))
 #define LxFunc(I, x, y) (x * I)
 #define LyFunc(I, x, y) (y * I)
-#define STableThread 32
-#define differThreadSize 32
 
 #define RowCumSum(name, func)                                                \
   __global__ void name(const float *image, float *rowCumSum, int colNumberM, \
@@ -98,8 +96,18 @@ __global__ void calculateFeatureDifference(float *templateFeatures,
       templateFeatures[3] - yGradientVector);
 }
 
+void getDeviceInfo(int *maxThreadsPerBlock, int *workingThreadsPerBlock) {
+  int devid;
+  cudaDeviceProp deviceProp;
+  cudaGetDevice(&devid);
+  cudaGetDeviceProperties(&deviceProp, devid);
+  *maxThreadsPerBlock = deviceProp.maxThreadsPerBlock;
+  *workingThreadsPerBlock =
+      _ConvertSMVer2Cores(deviceProp.major, deviceProp.minor);
+}
+
 void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
-                SumTable *sumTable, float *featuresT) {
+                SumTable *sumTable, float *featuresT, int STableThread) {
   float *l1SumTable;
   float *l2SumTable;
   float *lxSumTable;
@@ -191,9 +199,12 @@ void getMinimum(float *target, int M, int N, int *x, int *y) {
 
 void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
               int *y) {
+  int STableThread;
+  int differThreadSize;
+  getDeviceInfo(&differThreadSize, &STableThread);
   SumTable sumTable;
   float featuresT[4] = {0, 0, 0, 0};
-  Preprocess(I, T, Iw, Ih, Tw, Th, &sumTable, featuresT);
+  Preprocess(I, T, Iw, Ih, Tw, Th, &sumTable, featuresT, STableThread);
   float *dev_difference;
   float *difference;
   float *dev_featuresT;
