@@ -30,6 +30,35 @@
 \maketitle
 \section{Problem Description}
 \section{Algorithm}
+  \subsection{Supporting non-square templates}
+    The only difference between square templates and non-square templates is how
+    to calculate the feature vector. The formula of mean for the square templates
+    is:
+    \[v_1(D)=\frac{1}{K^2}S_1(D)\]
+    The $K^2$ here means the area of $D$, so the formula of mean for the non-square
+    template with size $K_x\times K_y$ is:
+    \[v_1(D)=\frac{1}{K_xK_y}S_1(D)\]
+    Similarly
+    \[v_2(D)=\frac{1}{K_xK_y}S_2(D)-v_1(D)^2\]
+    Things are little tricky for the gradients. From the original definition,
+    the Extended Prewitt Operator on $x$ for the $K_x\times K_y$ patch is:
+    \[EP_x(x, y)=x-\frac{K_x+1}{2}\]
+    The absolute sum of $EP_x$ is:
+    \[\sum_{i=1}^{K_x}\sum_{i=1}^{K_y}\left|EP_x(i,j)\right|\]
+    \[=K_y\sum_{i=1}^{K_x}\left|EP_x(i,j)\right|\]
+    \[=K_y\frac{(K_x+1)(K_x-1)}{4}\]
+    So the gradient on $x$ is:
+    \[G_x(D)=\sum_{i=1}^{K_x}\sum_{i=1}^{K_y}EP_x(i,j)I(i,j)/
+      \sum_{i=1}^{K_x}\sum_{i=1}^{K_y}\left|EP_x(i,j)\right|\]
+    \[=\sum_{i=1}^{K_x}\sum_{i=1}^{K_y}I(i,j)(x-\bar{x})/
+      \sum_{i=1}^{K_x}\sum_{i=1}^{K_y}\left|EP_x(i,j)\right|\]
+    where $x$ is the global index w.r.t. corresponding local index $i$ within the
+    patch and $\bar{x}$ is the median of global index $x$ in this patch
+    \[=\frac{4}{K_y(K_x+1)(K_x-1)}(S_x(D)-\bar{x}S_1(D))\]
+    So similar as the formula (9) in the Project Paper, $v_3$ and $v_4$ can be
+    written as:
+    \[v_3(D)=\frac{4}{K_yK_x^2}(S_x(D)-xS_1(D))\]
+    \[v_4(D)=\frac{4}{K_xK_y^2}(S_y(D)-yS_1(D))\]
 \section{Analysis}
 \section{Experiments}
   \subsection{Data}

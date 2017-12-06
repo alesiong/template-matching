@@ -9,16 +9,16 @@
 #define STableThread 32
 #define differThreadSize 32
 
-#define RowCumSum(name, func)                                                 \
-  __global__ void name(const float *image, float *rowCumSum, int colNumberM, int rowNum) {\
-    float sum = 0;                                                            \
-    int xIndex;                                                               \
-    xIndex = threadIdx.x + blockIdx.x * blockDim.x;                           \
-    if(xIndex <= rowNum){                                                        \
-    for (int i = 0; i < colNumberM; ++i) {                                    \
-      sum += func(image[xIndex * colNumberM + i], i, xIndex);                 \
-      rowCumSum[xIndex * colNumberM + i] = sum;                               \
-    }}                                                                         \
+#define RowCumSum(name, func)                                                \
+  __global__ void name(const float *image, float *rowCumSum, int colNumberM, \
+                       int rowNum) {                                         \
+    float sum = 0;                                                           \
+    int xIndex = threadIdx.x + blockIdx.x * blockDim.x;                      \
+    if (xIndex > rowNum) return;                                             \
+    for (int i = 0; i < colNumberM; ++i) {                                   \
+      sum += func(image[xIndex * colNumberM + i], i, xIndex);                \
+      rowCumSum[xIndex * colNumberM + i] = sum;                              \
+    }                                                                        \
   }
 
 RowCumSum(calcL1RowCumSum, L1Func);
@@ -62,18 +62,18 @@ void allocateCudaMem(float **pointer, int size) {
 
 // totally (M - K + 1) * (N - K + 1) threads
 __global__ void calculateFeatureDifference(float *templateFeatures,
-                                           int rowNumberN, int colNumberM,
+                                           int colNumberM, int rowNumberN,
                                            float *l1SumTable, float *l2SumTable,
                                            float *lxSumTable, float *lySumTable,
-                                           int Kx, int Ky, float *differences,
-                                           int heightlimited) {
+                                           int Kx, int Ky, float *differences) {
+  int heightlimited = rowNumberN - Ky + 1;
   float meanVector;
   float varianceVector;
   float xGradientVector;
   float yGradientVector;
   int startX = blockIdx.x;
   int startY = threadIdx.x + blockIdx.y * blockDim.x;
-  if (startY <= heightlimited){
+  if (startY > heightlimited) return;
   float S1D =
       computeS(l1SumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
   float S2D =
@@ -96,7 +96,6 @@ __global__ void calculateFeatureDifference(float *templateFeatures,
       templateFeatures[0] - meanVector, templateFeatures[1] - varianceVector,
       templateFeatures[2] - xGradientVector,
       templateFeatures[3] - yGradientVector);
-    }
 }
 
 void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
@@ -125,20 +124,26 @@ void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
   cudaStreamCreate(&lyStream);
 
   // calculate sum tables first by row
-  int rowBlocksize = N/STableThread+1;
-  int sumTableBlocksize = M/STableThread+1;
+  int rowBlocksize = (N + STableThread - 1) / STableThread;
+  int sumTableBlocksize = (M + STableThread - 1) / STableThread;
 
-  calcL1RowCumSum<<<rowBlocksize, STableThread, 0, l1Stream>>>(dev_I, l1SumTable, M, N);
-  calcL2RowCumSqrSum<<<rowBlocksize, STableThread, 0, l2Stream>>>(dev_I, l2SumTable, M, N);
-  calcLxRowCumGradntSum<<<rowBlocksize, STableThread, 0, lxStream>>>(dev_I, lxSumTable, M, N);
-  calcLyRowCumGradntSum<<<rowBlocksize, STableThread, 0, lyStream>>>(dev_I, lySumTable, M, N);
+  calcL1RowCumSum<<<rowBlocksize, STableThread, 0, l1Stream>>>(
+      dev_I, l1SumTable, M, N);
+  calcL2RowCumSqrSum<<<rowBlocksize, STableThread, 0, l2Stream>>>(
+      dev_I, l2SumTable, M, N);
+  calcLxRowCumGradntSum<<<rowBlocksize, STableThread, 0, lxStream>>>(
+      dev_I, lxSumTable, M, N);
+  calcLyRowCumGradntSum<<<rowBlocksize, STableThread, 0, lyStream>>>(
+      dev_I, lySumTable, M, N);
 
-
-
-  calcSumTable<<<sumTableBlocksize, STableThread, 0, l1Stream>>>(l1SumTable, l1SumTable, N, M);
-  calcSumTable<<<sumTableBlocksize, STableThread, 0, l2Stream>>>(l2SumTable, l2SumTable, N, M);
-  calcSumTable<<<sumTableBlocksize, STableThread, 0, lxStream>>>(lxSumTable, lxSumTable, N, M);
-  calcSumTable<<<sumTableBlocksize, STableThread, 0, lyStream>>>(lySumTable, lySumTable, N, M);
+  calcSumTable<<<sumTableBlocksize, STableThread, 0, l1Stream>>>(
+      l1SumTable, l1SumTable, N, M);
+  calcSumTable<<<sumTableBlocksize, STableThread, 0, l2Stream>>>(
+      l2SumTable, l2SumTable, N, M);
+  calcSumTable<<<sumTableBlocksize, STableThread, 0, lxStream>>>(
+      lxSumTable, lxSumTable, N, M);
+  calcSumTable<<<sumTableBlocksize, STableThread, 0, lyStream>>>(
+      lySumTable, lySumTable, N, M);
 
   cudaStreamDestroy(l1Stream);
   cudaStreamDestroy(l2Stream);
@@ -198,17 +203,16 @@ void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
   allocateCudaMem(&dev_difference, difference_size);
   cudaMemcpy(dev_featuresT, featuresT, sizeof(float) * 4,
              cudaMemcpyHostToDevice);
-
-  dim3 differenceBlockSize(Iw - Tw + 1, (Ih - Th + 1) / differThreadSize + 1);
+  dim3 differenceBlockSize(Iw - Tw + 1,
+                           // Ih - Th + 1 + differThreadSize - 1
+                           (Ih - Th + differThreadSize) / differThreadSize);
   calculateFeatureDifference<<<differenceBlockSize, differThreadSize>>>(
-      dev_featuresT, Ih, Iw, sumTable.l1SumTable, sumTable.l2SumTable,
-      sumTable.lxSumTable, sumTable.lySumTable, Tw, Th, dev_difference,
-      Ih - Th + 1);
+      dev_featuresT, Iw, Ih, sumTable.l1SumTable, sumTable.l2SumTable,
+      sumTable.lxSumTable, sumTable.lySumTable, Tw, Th, dev_difference);
 
   cudaMemcpy(difference, dev_difference, difference_size,
              cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
-  // find the max, by kernel?
   getMinimum(difference, Iw - Tw + 1, Ih - Th + 1, x, y);
   cudaFree(sumTable.l1SumTable);
   cudaFree(sumTable.l2SumTable);
