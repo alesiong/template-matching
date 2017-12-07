@@ -15,11 +15,9 @@ ssh $HOST "bash -l -c '\
 echo 'Running...'
 ssh $HOST "bash -l -c '\
   cd $PROJ_DIR/; \
-  mv main data; \
-  cd data; \
-  ./main $1 $2; \
+  ./main $1 $2 $3; \
   '"
 echo 'Copying back results'
 
 mkdir -p output
-scp -q -r $HOST:$PROJ_DIR/data/output.bmp output/
+scp -q -r $HOST:$PROJ_DIR/$3 output/
