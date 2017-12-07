@@ -1,6 +1,7 @@
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include "includes/kernel.cuh"
+#include "includes/utils.cuh"
 
 #define L1Func(I, x, y) (I)
 #define L2Func(I, x, y) (powf(I, 2))
@@ -19,11 +20,13 @@
     }                                                                        \
   }
 
+// Use macro to create kernels that compute L tables' rows
 RowCumSum(calcL1RowCumSum, L1Func);
 RowCumSum(calcL2RowCumSqrSum, L2Func);
 RowCumSum(calcLxRowCumGradntSum, LxFunc);
 RowCumSum(calcLyRowCumGradntSum, LyFunc);
 
+// Sum up L tables by column
 __global__ void calcSumTable(const float *rowCumSum, float *SumTable,
                              int rowNumberN, int colNumberM) {
   for (int i = 1; i < rowNumberN; i++) {
@@ -34,6 +37,7 @@ __global__ void calcSumTable(const float *rowCumSum, float *SumTable,
   }
 }
 
+// Helper function that computes S from certain L table
 __device__ float computeS(float *sumTable, int rowNumberN, int colNumberM,
                           int startX, int startY, int Kx, int Ky) {
   startX--;
@@ -46,32 +50,21 @@ __device__ float computeS(float *sumTable, int rowNumberN, int colNumberM,
   return S;
 }
 
-void allocateCudaMem(float **pointer, int size) {
-  cudaError_t err = cudaSuccess;
-
-  err = cudaMalloc((void **)pointer, size);
-
-  if (err != cudaSuccess) {
-    fprintf(stderr, "Failed to allocate device memory (error code %s)!\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-}
-
-// totally (M - K + 1) * (N - K + 1) threads
 __global__ void calculateFeatureDifference(float *templateFeatures,
                                            int colNumberM, int rowNumberN,
                                            float *l1SumTable, float *l2SumTable,
                                            float *lxSumTable, float *lySumTable,
                                            int Kx, int Ky, float *differences) {
-  int heightlimited = rowNumberN - Ky + 1;
+  int widthLimit = colNumberM - Kx + 1;
+  int heightLimit = rowNumberN - Ky + 1;
+
   float meanVector;
   float varianceVector;
   float xGradientVector;
   float yGradientVector;
-  int startX = blockIdx.x;
-  int startY = threadIdx.x + blockIdx.y * blockDim.x;
-  if (startY > heightlimited) return;
+  int startX = threadIdx.x + blockIdx.x * blockDim.x;
+  int startY = threadIdx.y + blockIdx.y * blockDim.y;
+  if (startX > widthLimit || startY > heightLimit) return;
   float S1D =
       computeS(l1SumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
   float S2D =
@@ -90,37 +83,27 @@ __global__ void calculateFeatureDifference(float *templateFeatures,
       computeS(lySumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
   yGradientVector = 4 * (SyD - (startY + Ky / 2.0) * S1D) / (Ky * Ky * Kx);
 
-  differences[startX + startY * gridDim.x] = norm4df(
+  differences[startX + startY * widthLimit] = norm4df(
       templateFeatures[0] - meanVector, templateFeatures[1] - varianceVector,
       templateFeatures[2] - xGradientVector,
       templateFeatures[3] - yGradientVector);
 }
 
-void getDeviceInfo(int *maxThreadsPerBlock, int *workingThreadsPerBlock) {
-  int devid;
-  cudaDeviceProp deviceProp;
-  cudaGetDevice(&devid);
-  cudaGetDeviceProperties(&deviceProp, devid);
-  *maxThreadsPerBlock = deviceProp.maxThreadsPerBlock;
-  *workingThreadsPerBlock =
-      _ConvertSMVer2Cores(deviceProp.major, deviceProp.minor);
-}
-
-void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
+void preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
                 SumTable *sumTable, float *featuresT, int STableThread) {
   float *l1SumTable;
   float *l2SumTable;
   float *lxSumTable;
   float *lySumTable;
 
-  allocateCudaMem(&l1SumTable, sizeof(float) * M * N);
-  allocateCudaMem(&l2SumTable, sizeof(float) * M * N);
-  allocateCudaMem(&lxSumTable, sizeof(float) * M * N);
-  allocateCudaMem(&lySumTable, sizeof(float) * M * N);
+  AllocateCudaMem(&l1SumTable, sizeof(float) * M * N);
+  AllocateCudaMem(&l2SumTable, sizeof(float) * M * N);
+  AllocateCudaMem(&lxSumTable, sizeof(float) * M * N);
+  AllocateCudaMem(&lySumTable, sizeof(float) * M * N);
 
   float *dev_I;
 
-  allocateCudaMem(&dev_I, sizeof(float) * M * N);
+  AllocateCudaMem(&dev_I, sizeof(float) * M * N);
 
   cudaMemcpy(dev_I, I, sizeof(float) * M * N, cudaMemcpyHostToDevice);
 
@@ -131,7 +114,7 @@ void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
   cudaStreamCreate(&lxStream);
   cudaStreamCreate(&lyStream);
 
-  // calculate sum tables first by row
+  // calculate L tables first by row
   int rowBlocksize = (N + STableThread - 1) / STableThread;
   int sumTableBlocksize = (M + STableThread - 1) / STableThread;
 
@@ -144,6 +127,7 @@ void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
   calcLyRowCumGradntSum<<<rowBlocksize, STableThread, 0, lyStream>>>(
       dev_I, lySumTable, M, N);
 
+  // then sum by column
   calcSumTable<<<sumTableBlocksize, STableThread, 0, l1Stream>>>(
       l1SumTable, l1SumTable, N, M);
   calcSumTable<<<sumTableBlocksize, STableThread, 0, l2Stream>>>(
@@ -158,6 +142,7 @@ void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
   cudaStreamDestroy(lxStream);
   cudaStreamDestroy(lyStream);
 
+  // Calculate features for the template
   for (int i = 0; i < Ky; i++) {
     for (int j = 0; j < Kx; j++) {
       featuresT[0] += T[i * Kx + j];
@@ -169,8 +154,8 @@ void Preprocess(const float *I, const float *T, int M, int N, int Kx, int Ky,
 
   featuresT[0] /= (float)(Kx * Ky);
   featuresT[1] = featuresT[1] / (float)(Kx * Ky) - featuresT[0] * featuresT[0];
-  //   4/K^3*(Sx(D)-x*S1(D)), where x = Kx/2
-  // = 4/K^3*(f2-Kx/2*f0*Kx*Ky)
+  //   4/Kx^2Ky*(Sx(D)-x*S1(D)), where x = Kx/2
+  // = 4/Kx^2Ky*(f2-Kx/2*f0*Kx*Ky)
   // = 4/Kx^2Ky*f2-2*f0
   featuresT[2] = 4.0 / (Kx * Kx * Ky) * featuresT[2] - 2.0 * featuresT[0];
   featuresT[3] = 4.0 / (Ky * Kx * Ky) * featuresT[3] - 2.0 * featuresT[0];
@@ -200,24 +185,29 @@ void getMinimum(float *target, int M, int N, int *x, int *y) {
 void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
               int *y) {
   int STableThread;
-  int differThreadSize;
-  getDeviceInfo(&differThreadSize, &STableThread);
+  int maxThreadsPerBlock;
+  GetDeviceInfo(&maxThreadsPerBlock, &STableThread);
+
   SumTable sumTable;
   float featuresT[4] = {0, 0, 0, 0};
-  Preprocess(I, T, Iw, Ih, Tw, Th, &sumTable, featuresT, STableThread);
+  preprocess(I, T, Iw, Ih, Tw, Th, &sumTable, featuresT, STableThread);
   float *dev_difference;
   float *difference;
   float *dev_featuresT;
   size_t difference_size = sizeof(float) * (Iw - Tw + 1) * (Ih - Th + 1);
   difference = (float *)malloc(difference_size);
-  allocateCudaMem(&dev_featuresT, sizeof(float) * 4);
-  allocateCudaMem(&dev_difference, difference_size);
+  AllocateCudaMem(&dev_featuresT, sizeof(float) * 4);
+  AllocateCudaMem(&dev_difference, difference_size);
   cudaMemcpy(dev_featuresT, featuresT, sizeof(float) * 4,
              cudaMemcpyHostToDevice);
-  dim3 differenceBlockSize(Iw - Tw + 1,
+
+  int differenceThreadsX = 32;
+  int differenceThreadsY = maxThreadsPerBlock / differenceThreadsX;
+  dim3 differenceBlockSize((Iw - Tw + differenceThreadsX) / differenceThreadsX,
                            // Ih - Th + 1 + differThreadSize - 1
-                           (Ih - Th + differThreadSize) / differThreadSize);
-  calculateFeatureDifference<<<differenceBlockSize, differThreadSize>>>(
+                           (Ih - Th + differenceThreadsY) / differenceThreadsY);
+  calculateFeatureDifference<<<differenceBlockSize,
+                               dim3(differenceThreadsX, differenceThreadsY)>>>(
       dev_featuresT, Iw, Ih, sumTable.l1SumTable, sumTable.l2SumTable,
       sumTable.lxSumTable, sumTable.lySumTable, Tw, Th, dev_difference);
 
