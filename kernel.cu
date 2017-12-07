@@ -203,8 +203,9 @@ void GetMatch(float *I, float *T, int Iw, int Ih, int Tw, int Th, int *x,
 
   int differenceThreadsX = 32;
   int differenceThreadsY = maxThreadsPerBlock / differenceThreadsX;
+  //                        Iw - Tw + 1 + differenceThreadsX - 1
   dim3 differenceBlockSize((Iw - Tw + differenceThreadsX) / differenceThreadsX,
-                           // Ih - Th + 1 + differThreadSize - 1
+                           // Ih - Th + 1 + differenceThreadsY - 1
                            (Ih - Th + differenceThreadsY) / differenceThreadsY);
   calculateFeatureDifference<<<differenceBlockSize,
                                dim3(differenceThreadsX, differenceThreadsY)>>>(
