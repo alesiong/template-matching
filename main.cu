@@ -18,6 +18,10 @@ int main() {
   I = ReadBMP(I_path, &I_width, &I_height);
   T = ReadBMP(T_path, &T_width, &T_height);
 
+  if (I_width < T_width || I_height < T_height){
+    printf("the template is larger than the picture");
+    return 0;
+  }
   if (I == 0 || T == 0) {
     exit(1);
   }
