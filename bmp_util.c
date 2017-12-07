@@ -12,7 +12,6 @@ float *ReadBMP(const char *bmpName, int *width, int *height) {
   uchar *img_raw;
   float *image;
   int bmpwidth, bmpheight, linebyte, npixels, i, j;
-
   if ((fp = fopen(bmpName, "rb")) == NULL) {
     printf("Failed to open the image.\n");
     return 0;
