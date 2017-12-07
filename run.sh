@@ -17,7 +17,7 @@ ssh $HOST "bash -l -c '\
   cd $PROJ_DIR/; \
   mv main data; \
   cd data; \
-  ./main; \
+  ./main $1 $2; \
   '"
 echo 'Copying back results'
 
