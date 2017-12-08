@@ -13,7 +13,7 @@
                        int rowNum) {                                         \
     float sum = 0;                                                           \
     int xIndex = threadIdx.x + blockIdx.x * blockDim.x;                      \
-    if (xIndex > rowNum) return;                                             \
+    if (xIndex >= rowNum) return;                                            \
     for (int i = 0; i < colNumberM; ++i) {                                   \
       sum += func(image[xIndex * colNumberM + i], i, xIndex);                \
       rowCumSum[xIndex * colNumberM + i] = sum;                              \
@@ -29,9 +29,9 @@ RowCumSum(calcLyRowCumGradntSum, LyFunc);
 // Sum up L tables by column
 __global__ void calcSumTable(const float *rowCumSum, float *SumTable,
                              int rowNumberN, int colNumberM) {
+  int xIndex = threadIdx.x + blockIdx.x * blockDim.x;
+  if (xIndex >= colNumberM) return;
   for (int i = 1; i < rowNumberN; i++) {
-    int xIndex;
-    xIndex = threadIdx.x + blockIdx.x * blockDim.x;
     SumTable[i * colNumberM + xIndex] +=
         rowCumSum[(i - 1) * colNumberM + xIndex];
   }
@@ -44,8 +44,8 @@ __device__ float computeS(float *sumTable, int rowNumberN, int colNumberM,
   startY--;
   float S =
       sumTable[startX + Kx + (Ky + startY) * colNumberM] -
-      (startX < 0 ? 0 : sumTable[startX + Kx + startY * colNumberM]) -
-      (startY < 0 ? 0 : sumTable[startX + (Ky + startY) * colNumberM]) +
+      (startX < 0 ? 0 : sumTable[startX + (Ky + startY) * colNumberM]) -
+      (startY < 0 ? 0 : sumTable[startX + Kx + startY * colNumberM]) +
       (startX < 0 || startY < 0 ? 0 : sumTable[startX + startY * colNumberM]);
   return S;
 }
@@ -64,7 +64,7 @@ __global__ void calculateFeatureDifference(float *templateFeatures,
   float yGradientVector;
   int startX = threadIdx.x + blockIdx.x * blockDim.x;
   int startY = threadIdx.y + blockIdx.y * blockDim.y;
-  if (startX > widthLimit || startY > heightLimit) return;
+  if (startX >= widthLimit || startY >= heightLimit) return;
   float S1D =
       computeS(l1SumTable, rowNumberN, colNumberM, startX, startY, Kx, Ky);
   float S2D =
