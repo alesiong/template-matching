@@ -39,6 +39,8 @@ int main(int argc, char *argv[]) {
 
   MarkAndSave(argv[1], x1, y1, x2, y2, argv[3]);
 
+  printf("Result is put in: %s\n", argv[3]);
+
   free(I);
   free(T);
   return 0;
