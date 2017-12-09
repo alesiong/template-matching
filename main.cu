@@ -3,6 +3,7 @@
 #include <time.h>
 #include "includes/bmp_util.h"
 #include "includes/kernel.cuh"
+#include "includes/cpumatch.h"
 
 int main(int argc, char *argv[]) {
   // Just an example here - you are free to modify them
@@ -32,6 +33,7 @@ int main(int argc, char *argv[]) {
   int x, y;
 
   GetMatch(I, T, I_width, I_height, T_width, T_height, &x, &y);
+  CPUGetMatch(I, T, I_width, I_height, T_width, T_height, &x, &y);
   x1 = x;
   x2 = x + T_width - 1;
   y1 = y;
