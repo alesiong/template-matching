@@ -29,6 +29,8 @@
 \begin{document}
 \maketitle
 \section{Problem Description}
+	The problem focused in this project is that given a $K \times K$ template $T$, we need to find a patch in an $M \times N$ input image that is most similar to the given template. Therefore, we need to search for each possible patch in the $M \times N$ input image, and compare them with the given template. Eventually, we mark the best fit patch on the input image and return it.
+
 \section{Algorithm}
   \subsection{Overview}
     We use totally 6 kernels and several CPU functions to complete the job.
@@ -143,7 +145,41 @@ image[i * bmpwidth + j] = 0.11 * img_raw[i * linebyte + j * 3] +
     written as:
     \[v_3(D)=\frac{4}{K_yK_x^2}(S_x(D)-xS_1(D))\]
     \[v_4(D)=\frac{4}{K_xK_y^2}(S_y(D)-yS_1(D))\]
+
 \section{Analysis}
+  \subsection{preprocessing}
+  At first, we use four kernels, and each kernel with $N$ threads, to compute the
+  cumulative sum of mean value, variance, $X$ and $Y$ component of gradient on
+  every row. Assuming the image size is $N \times N$, within each thread, there is
+  a for loop with range $N$ to calculate the sum, so the time complexity of
+  each thread is $O(N)$.
+
+  Secondly, we launch 5th kernel four times to compute the cumulative sum on every column.
+  Since we assume the image size is $N \times N$, so the 5th kernel also contains
+  $N$ threads. And within each thread, there is also a for loop with range $N$ to
+  calculate the sum, so the time complexity of each thread is $O(N)$.
+
+  Thirdly, we use CPU to compute the template features. There are two for loops
+  with range $K$ to complete the job, so the time complexity is $O(K^2)$.
+
+  In conlusion, we launch kernel eight times, and each kernel has $N$ threads with
+  time complexity $O(N)$. And we also use CPU to calculate template features, in which
+  the time complexity is $O(K^2)$. So the time complexity of preprocessing is
+  $8/64 \times N \times O(N) + O(K^2)$.
+  \subsection{Calculating the Difference}
+  We use one kernel with $(N - K + 1) \times (N - K + 1)$ threads to do the job.
+  Within each thread, there is no loop, so the time complexity is $O(1)$, and the
+  total time complexity of calculating the difference is $(N - K + 1) ^ 2 \times O(1)$ divided by 64.
+  \subsection{Finding the Match}
+  We use CPU to find the minimum among the difference vector. There are two for
+  loops with range $N$ to search for the minimum, so the time complexity is $O(N ^ 2)$.
+  \subsection{Conlusion}
+  Since we divide the whole job into three parts, therefore the overall time complexity
+  will be the sum of the time complexity of the above three parts. So the total
+  time complexity is $8/64 \times N \times O(N) + O(K^2) + 1/64 \times O((N - K + 1) ^ 2) + O(N ^ 2)$.
+  After simplification, the overall time complexity is $O(N ^ 2) + O(K ^ 2)$.
+
+
 \section{Experiments}
   \subsection{Data}
   \subsection{Findings}
