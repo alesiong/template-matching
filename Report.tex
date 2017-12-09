@@ -29,6 +29,8 @@
 \begin{document}
 \maketitle
 \section{Problem Description}
+	The problem focused in this project is that given a $K \times K$ template $T$, we need to find a patch in an $M \times N$ input image that is most similar to the given template. Therefore, we need to search for each possible patch in the $M \times N$ input image, and compare them with the given template. Eventually, we mark the best fit patch on the input image and return it.
+	
 \section{Algorithm}
   \subsection{Supporting non-square templates}
     The only difference between square templates and non-square templates is how
@@ -60,6 +62,7 @@
     \[v_3(D)=\frac{4}{K_yK_x^2}(S_x(D)-xS_1(D))\]
     \[v_4(D)=\frac{4}{K_xK_y^2}(S_y(D)-yS_1(D))\]
 \section{Analysis}
+	At first, we need to calculate the summed-area table for all features. Assuming the image size is $N \times N$, we use one kernel with $N$ threads to calculate the cumulative sum of mean value, variance, $X$ and $Y$ component of gradient on every row, and we use another kernel with $N$ threads to calculate the cumulative sum on every column. Since there are four summed-area tables, so there are totally eight kernels. And within each thread, there is a for loop with range $N$ to calculate the sum, so the time complexity of each thread is $O(N)$. Thus, the time complexity of eight kernels is $8 \times N \times O(N)$ divided by 64. Afterwards, we need to compute the difference vector of all features based on the summed-area table. We use $(N - K + 1) \times (N - K + 1)$ threads to do the job. Within each thread, there is no loop, so the time complexity is $O(1)$, and the total time complexity of computing difference vector is $(N - K + 1) ^ 2 \times O(1)$ divided by 64. Finally, we need to find the minimum value among the difference vector, we use two for loops with range $N$ to search for the minimum value, so the time complexity is $O(N ^ 2)$. To sum up, the overall time complexity of our algorithm is $O(N ^ 2)$. 
 \section{Experiments}
   \subsection{Data}
   \subsection{Findings}
