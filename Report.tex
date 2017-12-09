@@ -32,7 +32,91 @@
 	The problem focused in this project is that given a $K \times K$ template $T$, we need to find a patch in an $M \times N$ input image that is most similar to the given template. Therefore, we need to search for each possible patch in the $M \times N$ input image, and compare them with the given template. Eventually, we mark the best fit patch on the input image and return it.
 	
 \section{Algorithm}
-  \subsection{Supporting non-square templates}
+  \subsection{Overview}
+    We use totally 6 kernels and several CPU functions to complete the job.
+    The job can be divided into the following parts: preprocessing, calculating
+    the difference and finding the match.
+
+    Our program also supports 2 features which are not stated in the
+    Project Paper:
+    \begin{enumerate}
+      \item \textbf{Non-gray scale image} Details will be explained in the
+            Reading Images (\ref{reading-image}) section.
+      \item \textbf{Non-square templates} We modified the formulae in the Project
+            Paper to support this feature, and detailed derivation will be in the
+            Supporting Non-square Templates (\ref{non-square}) section.
+    \end{enumerate}
+  \subsection{Preprocessing}\label{preprocessing}
+    \subsubsection{Reading Images}\label{reading-image}
+      To support colorful (non-gray scale) images, we modify the BMP reading
+      code:
+      \begin{lstlisting}[language=c]
+image[i * bmpwidth + j] = 0.11 * img_raw[i * linebyte + j * 3] +
+                          0.59 * img_raw[i * linebyte + j * 3 + 1] +
+                          0.30 * img_raw[i * linebyte + j * 3 + 2];
+      \end{lstlisting}
+      This code is to convert the colorful image to gray-scale by taking weighted
+      average on RGB values of a pixel. And the formula is
+      $I_{gray}=0.3I_R+0.59I_G+0.11I_B$. We assign a higher weight to green because
+      green stimulates human's eyes more (BMP format stores a pixel in BGR order).
+    \subsubsection{Calculate $L$ Tables}
+      We use 5 kernels to calculate the $L$ tables of the 4 features. The first
+      4 kernels calculate each row of the 4 tables respectively. And than the
+      5th kernel will be launched 4 times on 4 different tables to sum up the
+      tables by column. Because the code to sum up one table by column is the
+      same for all 4 tables, we feed the 5th kernel with different row-summed
+      table to calculate different $L$ table.
+      We use CUDA streams to ensure that the 5th kernel only
+      launches after the corresponding row-summed table is calculated. For example,
+      the first stream will contain the first kernel (calcL1RowCumSum) that
+      calculate first row-summed $L$ table (mean) and 5th kernel (calcSumTable).
+      Thus the mean table will be summed up by column only after its rows are summed.
+
+      For the grid and block size, we first use only 1 block with $M$ or $N$ threads
+      in that block, where $M$ and $N$ are the dimension of the image. But this
+      will fail if the image size is greater than $1000\times1000$. So our final
+      method is to use $p$ threads in each block and let the total number of
+      threads be about $M$ or $N$. The $p$ is the number of CUDA cores per SM,
+      and we get this value at runtime. The reason for using this $p$ is that:
+      threads in 1 block can only run on 1 SM and each SM can run at most $p$
+      threads in the same time, so if we set the number of threads per block larger
+      than $p$, the rest of threads will need to wait the first $p$ threads to
+      finish. By setting each block $p$ threads, the blocks can be fully distributed
+      on all SM and no thread needs to wait others (if there are enough cores).
+
+      The formula of the grid size and block size is:
+      \[\text{grid size: }\lfloor(M+p-1)/p\rfloor\text{ or }\lfloor(N+p-1)/p\rfloor\]
+      \[\text{block size: }p\]
+
+    \subsubsection{Calculate Template Features}
+      As the template image is usually small, we use CPU to calculate the 4
+      features of the template image by 1 loop. Also, we do not wait the GPU
+      to finish before we calculate the template features by CPU. On the contrary,
+      We overlap the computation of GPU and CPU, so hopefully we can reduce the
+      time on waiting.
+
+  \subsection{Calculating the Difference}
+    The 6th kernel is used to calculate the difference between the feature vectors
+    of the template and the patch. To ease the coding, we write a
+    device function to calculate the $S$ value of a given patch from the $L$
+    table. Then the calculation for the features of the patch and the square of
+    Euclidean distance between 2 feature vectors is straightforward.
+
+    The difference matrix is of size $(M-Kx+1)\times(N-Ky+1)$, so we need at least
+    that number of threads to do the computation. However, if we use $N-Ky+1$
+    threads per block, it is less efficient because this number may not be a
+    multiple of 32. So we make the block size be $(32, p)$. Here $p$ is 16 if
+    the GPU supports 512 thread per block and 32 if it supports 1024. And the
+    final gird size and block size are:
+    \[\text{grid size: }(\lfloor((M-Kx+1)+32-1)/32\rfloor, \lfloor((N-Ky+1)+p-1)/p\rfloor)\]
+    \[\text{block size: }(32, p)\]
+  \subsection{Finding the Match}
+    We use CPU to find the minimal value and corresponding index in the difference
+    matrix. It is just a sequential process: iterate through the whole matrix
+    and find the minimum. The result index is just the bottom left corner of the
+    matching patch.
+
+  \subsection{Supporting Non-square Templates}\label{non-square}
     The only difference between square templates and non-square templates is how
     to calculate the feature vector. The formula of mean for the square templates
     is:
@@ -66,6 +150,18 @@
 \section{Experiments}
   \subsection{Data}
   \subsection{Findings}
+\section{Appendix and Vocabulary}
+  \subsection{Project Paper}
+    \textbf{Project Paper} refers to the pdf file ``project.pdf'' with title
+    \textit{Course Project: Fast Template Matching}. In short, the guideline
+    of this project.
+  \subsection{Formula for Padding}
+    You may see some formulae like $\lfloor(m+p-1)/p\rfloor$ in the report. This
+    formula is used to calculate the minimal number of size $p$ boxes that can
+    hold $m$ objects. A straightforward formula may be $\lfloor m/p\rfloor+1$,
+    but this will give 1 more if $m$ is the multiple of $p$. For example, $m=100$
+    and $p=10$.
+
 
 
 \end{document}
