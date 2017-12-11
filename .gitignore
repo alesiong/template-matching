@@ -1,6 +1,7 @@
 *.o
 /data/*
 !/data/.not-blank
+/images
 .DS_Store
 /bin
 /output
