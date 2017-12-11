@@ -187,6 +187,125 @@ image[i * bmpwidth + j] = 0.11 * img_raw[i * linebyte + j * 3] +
 
 \section{Experiments}
   \subsection{Data}
+<<<<<<< HEAD
+
+In this section, we do the template matching to 3 different pictures and record the running time of each 
+parts. In calculating the running time of kernel and CPU, we used \textbf{NAVIDA Visual Profiler} to
+measure the running of the kernel. In order to compare the running time, we also implement a CPU-
+version template matching to calculate the running time of using CPU.
+
+Here is the output image as an example:
+\begin{figure}[h]
+    \includegraphics[scale=0.5]{image/output.png}
+\caption{Example output image(Image 2)}
+\end{figure}
+The origin image size is 1600 * 1066 and the template is 111 * 115.
+Using NAVIDA Visual Profiler, we can view the GPU running details. Learning from the graph below, the 
+functions located at same time axis executed synchronously. 
+
+    \includegraphics[scale=1.0]{image/example1.png}
+
+When recording the running time of the kernel (compute, session), the running time varies due to some 
+interference. Thus we repeat the template matching for 5 times to obtain the mean value. 
+
+\begin{table}[!htbp]
+\caption{Mean value of GPU running time}
+\begin{tabular*}{12cm}{lll}
+\hline
+ &GPU(compute)  & GPU(session)   \\
+\hline
+Time 1 & 159.024 &	106.484\\
+Time 2 &170.403 &	96.098\\
+Time 3 &227.626 &	112.523\\
+Time 4 &164.776 &	115.201\\
+Time 5 &158.588 &	106.018\\
+\hline
+Mean value &176.0834 & 107.2648\\
+\hline
+\end{tabular*}
+\end{table}
+
+After recording GPU running time, we use power shell to record the CPU running time of the CPU-
+version template matching. Here is the code executed in the power shell:
+      \begin{lstlisting}[language=c]
+	$a=(Get-Date);
+	cpumain.exe data/lena.bmp data/lena_t.bmp out.bmp;
+	echo ((Get-Date)-$a)
+      \end{lstlisting}
+The resulted running time of CPU is 354.29ms.
+
+
+
+Repeating steps above for the other two images, we record the running time of CPU, kernel and some other functions.
+
+\begin{table}[!htbp]
+\caption{Data collected for 3 different images}
+\begin{tabular*}{12cm}{llll}
+\hline
+& Image 1 & Image 2 & Image3\\
+\hline    
+  CPU     & 51.0314ms&	354.29ms &	2625.157ms\\
+  GPU(compute)      	&24.692ms 	&112.27ms 	&447.41ms \\ 
+  GPU(session)      	&153.045ms	&169.156ms &	656.784ms \\
+  original file size	&612 × 421&1600 × 1066&   3500 × 2800     \\ 	         	          
+  template size     	&39 × 24&  111 × 115.&  385 × 265      	      \\   	          
+  Cudamalloc        &	65.096ms 	&64.744ms &764.34ms  \\
+  cudaMemcpy      &  	2.268ms  &	17.872ms 	& 86.724ms  \\
+
+\hline
+\end{tabular*}
+\end{table}
+
+  \subsection{Analysis \& Findings}
+  
+  In the time compexity analysis, the image we used is not a N × N square, but a rectangle. So we 
+  assume the N to be the square root of width multiply length. $N=\sqrt{length * width}$
+ 
+ Plot the running time with the x axis to be N*N
+ 
+ \begin{figure}[!htbp]
+    \includegraphics[scale=0.7]{image/plot1.png}
+\caption{running time and image size}
+\end{figure}
+ 
+ From the plot we can see that it is almost a straight line with running time and the image size.
+ Do the linear regression to the running time using R.
+ 
+  \begin{figure}[!htbp]
+    \includegraphics[scale=0.7]{image/regression-1.png}
+\caption{linear regression for CPU running time}
+\end{figure}
+
+  \begin{figure}[!htbp]
+    \includegraphics[scale=0.7]{image/regression-2.png}
+\caption{linear regression for GPU compute time}
+\end{figure}
+
+ The p-value of the GPU computing time is 0.0358 < 0.05, which means that the running time is linear to 
+ the image size. Thus we can conclude the real time complexity is $O(N^2)$
+In addition, the coefficient of GPU computing is 4.332e-05. Divide it with the coefficient of CPU running 
+time 2.734e-04. the speed up of the GPU program is calculated.
+$2.734e-04/4.332e-05 = 6.3111726$ It is not strictly 64. This is mainly because the overhead on the CUDA program.
+
+What's more, we plot the running time of cudaMemcpy and the image size.
+
+  \begin{figure}[! htbp]
+    \includegraphics[scale=0.5]{image/Rplot.png}
+\caption{cudaMemcpy running time and image size}
+\end{figure}
+
+It is almost a straight line with the image size. Doing the linear regression, the p-value is smaller than 0.05. we can conclude that the running time of cudaMemcpy is proportion to the image size.
+
+
+  \subsection{Conclusion}
+Conclusion: 
+
+1. The real time complexity of GPU is  $O(N^2)$, which matches our theoretical time complexity.
+
+2. Compared to CPU, using GPU speed up for 6.3111726 times.
+
+3. the running time of cudaMemcpy is also proportion to the image size.
+=======
   \subsection{Findings}
 
 \section{Test Images}
@@ -200,6 +319,7 @@ image[i * bmpwidth + j] = 0.11 * img_raw[i * linebyte + j * 3] +
     xu.bmp     & $1600\times1066$ & xu\_t.bmp     & $111\times115$ & Yes    \\\hline
   \end{tabular}
 
+>>>>>>> 0ec1e0d8aa574395eff4df10ef6d77f558a3b31b
 \section{Appendix and Vocabulary}
   \subsection{Project Paper}
     \textbf{Project Paper} refers to the pdf file ``project.pdf'' with title
