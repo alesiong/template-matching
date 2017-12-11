@@ -37,6 +37,8 @@ gcc -o template-matching-cpu cpumain.c bmp_util.c
 
 `bin/`: compiled binary executable
 
+`images/`: images and templates for testing
+
 `includes/`: headers
 
 `bmp_util.c`: functions to read and write BMP
